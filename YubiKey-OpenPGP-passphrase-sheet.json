@@ -9,16 +9,19 @@
   "data_headers": {
     "date": "DATE",
     "keyid": "KEY_ID",
+    "userpin" : "USER PIN",
     "passphrase": "PASSPHRASE:"
   },
   "data": {
     "date": "2026-01-18",
     "keyid": "0xA209FA54B8841756",
+    "userpin" : "grid10",
     "passphrase": "grid36"
   },
   "margins": {
     "date": { "left": "1" },
     "keyid": { "left": "3" },
+    "userpin" : { },
     "passphrase": { "left": "0" }
   }
 }
