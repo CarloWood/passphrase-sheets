@@ -1,0 +1,31 @@
+body,div,table,thead,tbody,tfoot,tr,th,td,p {
+  font-family: "Liberation Sans";
+  font-size: x-small
+}
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+td, th {
+  border: 1px solid #000000;
+  text-align: center;
+  vertical-align: middle;
+}
+td {
+  height: 23px;
+  font-size: x-small;
+}
+
+tr.date td { font-size: medium; }
+tr.serial td { font-size: medium; }
+tr td.dec { font-size: x-small; }
+
+.sheet { display: inline-block; }
+h1.title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 10px 0;
+}
+h1.title span { white-space: nowrap; }
