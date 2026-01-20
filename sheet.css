@@ -16,10 +16,15 @@ td {
   height: 23px;
   font-size: x-small;
 }
+td.header {
+  font-weight: normal;
+  font-size: medium;
+  font-family: DejaVu Sans;
+  vertical-align: middle;
+  padding-bottom: 0;
+}
 
-tr.date td { font-size: medium; }
-tr.serial td { font-size: medium; }
-tr td.dec { font-size: x-small; }
+td.data { font-size: medium; }
 
 .sheet { display: inline-block; }
 h1.title {
@@ -27,5 +32,6 @@ h1.title {
   justify-content: space-between;
   align-items: baseline;
   margin: 0 0 10px 0;
+  font-size: 22pt;
 }
 h1.title span { white-space: nowrap; }
