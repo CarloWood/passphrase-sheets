@@ -6,6 +6,7 @@ body,div,table,thead,tbody,tfoot,tr,th,td,p {
 table {
   border-collapse: collapse;
   border-spacing: 0;
+  margin-bottom: 10px;
 }
 td, th {
   border: 1px solid #000000;
@@ -26,12 +27,12 @@ td.header {
 
 td.data { font-size: medium; }
 
-.sheet { display: inline-block; }
+.sheet { display: table; }
 h1.title {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin: 0 0 10px 0;
+  margin: 0px 0px 10px 0px;
   font-size: 22pt;
 }
 h1.title span { white-space: nowrap; }

@@ -1,24 +1,47 @@
-{
-  "title": {
-    "left": "Yubikey",
-    "right": "primary OpenPGP key (certification-only)"
+[
+  {
+    "title": {
+      "left": "Yubikey PIN codes",
+      "right": ""
+    },
+    "table": {
+      "width": "26"
+    },
+    "data_headers": {
+      "gpgadminpin": "GPG ADMIN PIN",
+      "pin": "FIDO2/GPG PIN"
+    },
+    "data": {
+      "gpgadminpin": "grid10",
+      "pin": "grid10"
+    },
+    "margins": {
+      "gpgadminpin": { "left": "2" },
+      "pin": { "left": "2" }
+    }
   },
-  "table": {
-    "width": "37"
-  },
-  "data_headers": {
-    "date": "DATE",
-    "keyid": "KEY_ID",
-    "passphrase": "PASSPHRASE:"
-  },
-  "data": {
-    "date": "2026-01-18",
-    "keyid": "0xA209FA54B8841756",
-    "passphrase": "grid36"
-  },
-  "margins": {
-    "date": { "left": "1" },
-    "keyid": { "left": "7" },
-    "passphrase": { "left": "0" }
+  {
+    "title": {
+      "left": "Yubikey",
+      "right": "primary OpenPGP key (certification-only)"
+    },
+    "table": {
+      "width": "37"
+    },
+    "data_headers": {
+      "date": "DATE",
+      "keyid": "KEY_ID",
+      "passphrase": "PASSPHRASE:"
+    },
+    "data": {
+      "date": "2026-01-20",
+      "keyid": "0x36C8A45585BCA10B",
+      "passphrase": "grid36"
+    },
+    "margins": {
+      "date": { "left": "1" },
+      "keyid": { "left": "7" },
+      "passphrase": { "left": "0" }
+    }
   }
-}
+]

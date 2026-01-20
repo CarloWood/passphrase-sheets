@@ -8,6 +8,8 @@
 #include <cctype>
 #include <nlohmann/json.hpp>
 
+constexpr int grid10_height = 8;
+
 using json = nlohmann::ordered_json;
 
 namespace {
@@ -27,6 +29,24 @@ struct Block
 };
 
 static std::vector<Block>* g_blocks = nullptr;
+
+class BlocksScope
+{
+public:
+  explicit BlocksScope(std::vector<Block>& blocks)
+      : m_prev(g_blocks)
+  {
+    g_blocks = &blocks;
+  }
+
+  ~BlocksScope() { g_blocks = m_prev; }
+
+  BlocksScope(BlocksScope const&) = delete;
+  BlocksScope& operator=(BlocksScope const&) = delete;
+
+private:
+  std::vector<Block>* m_prev = nullptr;
+};
 
 Block const& get_block(int index)
 {
@@ -241,9 +261,9 @@ int data_width(std::string const& data)
 int data_height(std::string const& data)
 {
   if (data == "grid36")
-    return 31;
+    return 30;
   if (data == "grid10")
-    return 11;
+    return grid10_height + 1;
   return 2;
 }
 
@@ -380,6 +400,226 @@ bool find_block_at_row(RowGroup::Column const& col, int row_offset, int& out_blo
   return false;
 }
 
+void write_sheet_html(std::ostream& output_file, json const& j, std::string const& sheet_label)
+{
+  std::string const title_left = j.at("title").at("left").get<std::string>();
+  std::string const title_right = j.at("title").at("right").get<std::string>();
+  int const table_width = parse_int(j.at("table").at("width"), sheet_label + ".table.width");
+
+  std::cout << sheet_label << ".title.left: " << title_left << "\n";
+  std::cout << sheet_label << ".title.right: " << title_right << "\n";
+  std::cout << sheet_label << ".table.width: " << table_width << "\n\n";
+
+  json const& headers = j.at("data_headers");
+  json const& data = j.at("data");
+  json const& margins = j.at("margins");
+
+  if (!headers.is_object())
+    throw std::runtime_error(sheet_label + ".data_headers must be an object");
+  if (!data.is_object())
+    throw std::runtime_error(sheet_label + ".data must be an object");
+  if (!margins.is_object())
+    throw std::runtime_error(sheet_label + ".margins must be an object");
+
+  std::vector<Block> blocks;
+  BlocksScope const _blocks_scope(blocks);
+
+  std::vector<RowGroup> groups;
+  RowGroup current_group(table_width);
+
+  for (auto const& [key, header_value] : headers.items())
+  {
+    if (!data.contains(key))
+      throw std::runtime_error(sheet_label + ": data_headers key '" + key + "' is missing from data");
+    if (!margins.contains(key))
+      throw std::runtime_error(sheet_label + ": data_headers key '" + key + "' is missing from margins");
+
+    std::string const header = header_value.get<std::string>();
+    std::string const data_value = data.at(key).get<std::string>();
+    json const& margin_obj = margins.at(key);
+
+    if (!margin_obj.is_object())
+      throw std::runtime_error(sheet_label + ".margins." + key + " must be an object");
+
+    int const margin_left =
+        margin_obj.contains("left") ? parse_int(margin_obj.at("left"), sheet_label + ".margins." + key + ".left") : 0;
+    int const margin_right =
+        margin_obj.contains("right") ? parse_int(margin_obj.at("right"), sheet_label + ".margins." + key + ".right") : 0;
+
+    int content_width = (key == "keyid") ? 18 : ((key == "keyid3") ? 10 : data_width(data_value));
+    int height = (key == "keyid") ? 2 : ((key == "keyid3") ? 3 : data_height(data_value));
+    std::string keyid_hex16;
+    if (key == "keyid" || key == "keyid3")
+      keyid_hex16 = parse_keyid_hex16(data_value);
+
+    int width = content_width + margin_left + margin_right;
+
+    if (width > table_width)
+      throw std::runtime_error(sheet_label + ": block '" + key + "' has width " + std::to_string(width) + " > table width " +
+                               std::to_string(table_width));
+
+    Block block;
+    block.key = key;
+    block.header = header;
+    block.data = data_value;
+    block.keyid_hex16 = keyid_hex16;
+    block.width = width;
+    block.content_width = content_width;
+    block.height = height;
+    block.margin_left = margin_left;
+    block.margin_right = margin_right;
+    block.keyid_compact = key == "keyid3";
+
+    blocks.push_back(block);
+    int const block_index = static_cast<int>(blocks.size() - 1);
+
+    auto try_compact_last_keyid_to_fit = [&](int new_block_index) -> bool {
+      if (current_group.empty())
+        return false;
+      if (!current_group.last_column_has_single_block())
+        return false;
+
+      int const keyid_index = current_group.last_block_index();
+      Block const& keyid = get_block(keyid_index);
+      if (keyid.key != "keyid" || keyid.keyid_compact)
+        return false;
+      if (current_group.last_column().width != keyid.width)
+        return false;
+
+      Block const saved = keyid;
+      Block& keyid_mut = get_block_mut(keyid_index);
+
+      int const shrink = 8;
+      if (keyid_mut.content_width < shrink + 2)
+        return false;
+      keyid_mut.keyid_compact = true;
+      keyid_mut.content_width -= shrink;
+      keyid_mut.width -= shrink;
+      keyid_mut.height = 3;
+
+      RowGroup rebuilt(table_width);
+      for (int const idx : current_group.blocks_in_order())
+      {
+        if (!rebuilt.add(idx))
+        {
+          keyid_mut = saved;
+          return false;
+        }
+      }
+      if (!rebuilt.add(new_block_index))
+      {
+        keyid_mut = saved;
+        return false;
+      }
+
+      current_group = std::move(rebuilt);
+      return true;
+    };
+
+    if (current_group.add(block_index))
+      continue;
+
+    if (try_compact_last_keyid_to_fit(block_index))
+      continue;
+
+    if (!current_group.empty())
+      groups.push_back(std::move(current_group));
+
+    current_group = RowGroup(table_width);
+    if (!current_group.add(block_index))
+      throw std::runtime_error("internal error: failed to start new RowGroup");
+  }
+
+  if (!current_group.empty())
+    groups.push_back(std::move(current_group));
+
+  int group_top = 0;
+  for (RowGroup const& group : groups)
+  {
+    int col_left = 0;
+    for (auto const& col : group.columns())
+    {
+      int col_top = group_top;
+      for (int const idx : col.blocks)
+      {
+        Block const& b = get_block(idx);
+        std::cout << b.key << ": header='" << b.header << "' data='" << b.data << "' top=" << col_top << " left=" << col_left << " width=" << b.width
+                  << " height=" << b.height;
+        if (b.key == "keyid")
+          std::cout << " compact=" << (b.keyid_compact ? 1 : 0);
+        std::cout << "\n";
+        col_top += b.height;
+      }
+      col_left += col.width;
+    }
+    group_top += group.height();
+  }
+
+  output_file << "<div class=\"sheet\">\n";
+  output_file << "<h1 class=\"title\">\n";
+  output_file << "  <span>" << html_escape(title_left) << "</span>\n";
+  output_file << "  <span>" << html_escape(title_right) << "</span>\n";
+  output_file << "</h1>\n";
+
+  output_file << "<table cellspacing=\"0\" border=\"0\">\n";
+  output_file << "\t<colgroup span=\"" << table_width << "\" width=\"25\"></colgroup>\n";
+
+  for (RowGroup const& group : groups)
+  {
+    for (int row_offset = 0; row_offset < group.height(); ++row_offset)
+    {
+#if 0
+      bool any_header = false;
+      for (auto const& col : group.columns())
+      {
+        int block_row = 0;
+        int block_index = -1;
+        if (find_block_at_row(col, row_offset, block_row, block_index))
+        {
+          if (block_row == 0)
+          {
+            any_header = true;
+            break;
+          }
+        }
+      }
+
+      if (any_header)
+        output_file << "\t<tr class=\"header\">\n";
+      else
+#endif
+        output_file << "\t<tr>\n";
+
+      int used_width = 0;
+      for (auto const& col : group.columns())
+      {
+        int block_row = 0;
+        int block_index = -1;
+        if (find_block_at_row(col, row_offset, block_row, block_index))
+        {
+          if (block_row == 0)
+            write_block_header_row(output_file, get_block(block_index));
+          else
+            write_block_data_row(output_file, get_block(block_index), block_row - 1);
+
+          write_empty_span(output_file, col.width - get_block(block_index).width);
+        }
+        else
+        {
+          write_empty_span(output_file, col.width);
+        }
+        used_width += col.width;
+      }
+
+      write_empty_span(output_file, table_width - used_width);
+      output_file << "\t</tr>\n";
+    }
+  }
+
+  output_file << "</table>\n";
+  output_file << "</div>\n";
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -389,6 +629,7 @@ int main(int argc, char* argv[])
     std::cerr << "Usage: " << argv[0] << " <basename>\n";
     std::cerr << "  Input is read from <basename>.json\n";
     std::cerr << "  Output will be written to <basename>.html\n";
+    std::cerr << "  The input JSON may be a single object or an array of objects.\n";
     return 1;
   }
 
@@ -409,157 +650,15 @@ int main(int argc, char* argv[])
   try
   {
     std::ifstream input_file(input_file_path);
-    json j = json::parse(input_file);
+    json const j = json::parse(input_file);
 
-    std::string const title_left = j.at("title").at("left").get<std::string>();
-    std::string const title_right = j.at("title").at("right").get<std::string>();
-    int const table_width = parse_int(j.at("table").at("width"), "table.width");
-
-    std::cout << "title.left: " << title_left << "\n";
-    std::cout << "title.right: " << title_right << "\n";
-    std::cout << "table.width: " << table_width << "\n\n";
-
-    json const& headers = j.at("data_headers");
-    json const& data = j.at("data");
-    json const& margins = j.at("margins");
-
-    if (!headers.is_object())
-      throw std::runtime_error("data_headers must be an object");
-    if (!data.is_object())
-      throw std::runtime_error("data must be an object");
-    if (!margins.is_object())
-      throw std::runtime_error("margins must be an object");
-
-    std::vector<Block> blocks;
-    g_blocks = &blocks;
-
-    std::vector<RowGroup> groups;
-    RowGroup current_group(table_width);
-
-    for (auto const& [key, header_value] : headers.items())
-    {
-      if (!data.contains(key))
-        throw std::runtime_error("data_headers key '" + key + "' is missing from data");
-      if (!margins.contains(key))
-        throw std::runtime_error("data_headers key '" + key + "' is missing from margins");
-
-      std::string const header = header_value.get<std::string>();
-      std::string const data_value = data.at(key).get<std::string>();
-      json const& margin_obj = margins.at(key);
-
-      if (!margin_obj.is_object())
-        throw std::runtime_error("margins." + key + " must be an object");
-
-      int const margin_left = margin_obj.contains("left") ? parse_int(margin_obj.at("left"), "margins." + key + ".left") : 0;
-      int const margin_right = margin_obj.contains("right") ? parse_int(margin_obj.at("right"), "margins." + key + ".right") : 0;
-
-      int content_width = (key == "keyid") ? 18 : ((key == "keyid3") ? 10 : data_width(data_value));
-      int height = (key == "keyid") ? 2 : ((key == "keyid3") ? 3 : data_height(data_value));
-      std::string keyid_hex16;
-      if (key == "keyid" || key == "keyid3")
-        keyid_hex16 = parse_keyid_hex16(data_value);
-
-      int width = content_width + margin_left + margin_right;
-
-      if (width > table_width)
-        throw std::runtime_error("block '" + key + "' has width " + std::to_string(width) + " > table width " + std::to_string(table_width));
-
-      Block block;
-      block.key = key;
-      block.header = header;
-      block.data = data_value;
-      block.keyid_hex16 = keyid_hex16;
-      block.width = width;
-      block.content_width = content_width;
-      block.height = height;
-      block.margin_left = margin_left;
-      block.margin_right = margin_right;
-      block.keyid_compact = key == "keyid3";
-
-      blocks.push_back(block);
-      int const block_index = static_cast<int>(blocks.size() - 1);
-
-      auto try_compact_last_keyid_to_fit = [&](int new_block_index) -> bool {
-        if (current_group.empty())
-          return false;
-        if (!current_group.last_column_has_single_block())
-          return false;
-
-        int const keyid_index = current_group.last_block_index();
-        Block const& keyid = get_block(keyid_index);
-        if (keyid.key != "keyid" || keyid.keyid_compact)
-          return false;
-        if (current_group.last_column().width != keyid.width)
-          return false;
-
-        Block const saved = keyid;
-        Block& keyid_mut = get_block_mut(keyid_index);
-
-        int const shrink = 8;
-        if (keyid_mut.content_width < shrink + 2)
-          return false;
-        keyid_mut.keyid_compact = true;
-        keyid_mut.content_width -= shrink;
-        keyid_mut.width -= shrink;
-        keyid_mut.height = 3;
-
-        RowGroup rebuilt(table_width);
-        for (int const idx : current_group.blocks_in_order())
-        {
-          if (!rebuilt.add(idx))
-          {
-            keyid_mut = saved;
-            return false;
-          }
-        }
-        if (!rebuilt.add(new_block_index))
-        {
-          keyid_mut = saved;
-          return false;
-        }
-
-        current_group = std::move(rebuilt);
-        return true;
-      };
-
-      if (current_group.add(block_index))
-        continue;
-
-      if (try_compact_last_keyid_to_fit(block_index))
-        continue;
-
-      if (!current_group.empty())
-        groups.push_back(std::move(current_group));
-
-      current_group = RowGroup(table_width);
-      if (!current_group.add(block_index))
-        throw std::runtime_error("internal error: failed to start new RowGroup");
-    }
-
-    if (!current_group.empty())
-      groups.push_back(std::move(current_group));
-
-    int group_top = 0;
-    for (RowGroup const& group : groups)
-    {
-      int col_left = 0;
-      for (auto const& col : group.columns())
-      {
-        int col_top = group_top;
-        for (int const idx : col.blocks)
-        {
-          Block const& b = get_block(idx);
-          std::cout << b.key << ": header='" << b.header << "' data='" << b.data << "' top=" << col_top << " left=" << col_left << " width=" << b.width
-                    << " height=" << b.height;
-          if (b.key == "keyid")
-            std::cout << " compact=" << (b.keyid_compact ? 1 : 0);
-          std::cout << "\n";
-          col_top += b.height;
-        }
-        col_left += col.width;
-      }
-      group_top += group.height();
-    }
+    json sheets = json::array();
+    if (j.is_array())
+      sheets = j;
+    else if (j.is_object())
+      sheets.push_back(j);
+    else
+      throw std::runtime_error("top-level JSON must be an object or array of objects");
 
     std::ofstream output_file(output_file_path);
     if (!output_file)
@@ -574,70 +673,19 @@ int main(int argc, char* argv[])
   <link rel="stylesheet" href="sheet.css">
 </head>
 <body>
-<div class="sheet">
-<h1 class="title">
 )";
 
-    output_file << "  <span>" << html_escape(title_left) << "</span>\n";
-    output_file << "  <span>" << html_escape(title_right) << "</span>\n";
-    output_file << "</h1>\n";
-
-    output_file << "<table cellspacing=\"0\" border=\"0\">\n";
-    output_file << "\t<colgroup span=\"" << table_width << "\" width=\"25\"></colgroup>\n";
-
-    for (RowGroup const& group : groups)
+    for (std::size_t i = 0; i < sheets.size(); ++i)
     {
-      for (int row_offset = 0; row_offset < group.height(); ++row_offset)
-      {
-#if 0
-        bool any_header = false;
-        for (auto const& col : group.columns())
-        {
-          int block_row = 0;
-          int block_index = -1;
-          if (find_block_at_row(col, row_offset, block_row, block_index))
-          {
-            if (block_row == 0)
-            {
-              any_header = true;
-              break;
-            }
-          }
-        }
+      json const& sheet_j = sheets.at(i);
+      if (!sheet_j.is_object())
+        throw std::runtime_error("top-level array element " + std::to_string(i) + " must be an object");
 
-        if (any_header)
-          output_file << "\t<tr class=\"header\">\n";
-        else
-#endif
-          output_file << "\t<tr>\n";
-
-        int used_width = 0;
-        for (auto const& col : group.columns())
-        {
-          int block_row = 0;
-          int block_index = -1;
-          if (find_block_at_row(col, row_offset, block_row, block_index))
-          {
-            if (block_row == 0)
-              write_block_header_row(output_file, get_block(block_index));
-            else
-              write_block_data_row(output_file, get_block(block_index), block_row - 1);
-
-            write_empty_span(output_file, col.width - get_block(block_index).width);
-          }
-          else
-          {
-            write_empty_span(output_file, col.width);
-          }
-          used_width += col.width;
-        }
-
-        write_empty_span(output_file, table_width - used_width);
-        output_file << "\t</tr>\n";
-      }
+      std::string const label = (sheets.size() == 1) ? "sheet" : ("sheet[" + std::to_string(i) + "]");
+      write_sheet_html(output_file, sheet_j, label);
     }
 
-    output_file << "</table>\n</div>\n</body>\n</html>\n";
+    output_file << "</body>\n</html>\n";
     std::cout << "\nWrote " << output_file_path << "\n";
   }
   catch (std::exception const& e)
