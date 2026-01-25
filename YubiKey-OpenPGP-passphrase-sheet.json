@@ -9,7 +9,7 @@
     },
     "data_headers": {
       "gpgadminpin": "GPG ADMIN PIN",
-      "pin": "FIDO2/GPG PIN"
+      "pin": "FIDO2 / GPG PIN"
     },
     "data": {
       "gpgadminpin": "grid10",
@@ -34,8 +34,8 @@
       "passphrase": "PASSPHRASE:"
     },
     "data": {
-      "date": "2026-01-20",
-      "keyid": "0x36C8A45585BCA10B",
+      "date": "2026-01-25",
+      "keyid": "0x0AEAAA755F741ED2",
       "passphrase": "grid36"
     },
     "margins": {
