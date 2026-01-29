@@ -1,0 +1,20 @@
+[
+  {
+    "title": {
+      "left": "Kingston DataTraveler SE9 G3 64 GB",
+      "right": "Gold"
+    },
+    "table": {
+      "width": "37"
+    },
+    "data_headers": {
+      "passphrase": "LUKS_PASS (partitions 1 and 2)"
+    },
+    "data": {
+      "passphrase": "grid36"
+    },
+    "margins": {
+      "passphrase": { "left": "0" }
+    }
+  }
+]
